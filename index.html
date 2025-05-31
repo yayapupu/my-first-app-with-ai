@@ -8,14 +8,33 @@
     body { font-family: Arial, sans-serif; background: #f8f9fa; text-align: center; padding: 20px; }
     h1 { color: #222; }
     #result { font-size: 1.5em; margin-top: 20px; }
+    .btn-group { margin-top: 10px; }
+    button { margin: 5px; padding: 8px 12px; font-size: 16px; cursor: pointer; }
+    iframe { margin-top: 30px; border: none; }
   </style>
 </head>
 <body>
   <h1>噗噗 Binance 事件合約預測器</h1>
-  <p>以 MACD 技術指標預測 BTC/ETH 於 10 分鐘後的方向</p>
-  <button onclick="analyze('BTCUSDT')">分析 BTC</button>
-  <button onclick="analyze('ETHUSDT')">分析 ETH</button>
-  <div id="result">請選擇要預測的幣種</div>
+  <p>以 MACD 技術指標預測 BTC/ETH 未來走勢</p>
+
+  <div class="btn-group">
+    <button onclick="analyze('BTCUSDT', '1m')">分析 BTC（10分鐘）</button>
+    <button onclick="analyze('ETHUSDT', '1m')">分析 ETH（10分鐘）</button>
+    <button onclick="analyze('BTCUSDT', '30m')">分析 BTC（30分鐘）</button>
+    <button onclick="analyze('ETHUSDT', '30m')">分析 ETH（30分鐘）</button>
+  </div>
+
+  <div id="result">請選擇要預測的幣種與時間級別</div>
+
+  <div id="tv-widget">
+    <iframe id="tv-iframe"
+      width="100%"
+      height="500"
+      src=""
+      allowtransparency="true"
+      scrolling="no">
+    </iframe>
+  </div>
 
   <script>
     async function getKlines(symbol, interval = '1m', limit = 100) {
@@ -45,8 +64,8 @@
       return { dif, dea, macd };
     }
 
-    async function analyze(symbol) {
-      const data = await getKlines(symbol);
+    async function analyze(symbol, interval) {
+      const data = await getKlines(symbol, interval);
       const closes = data.map(d => d.close);
       const { dif, dea } = getMACD(closes);
 
@@ -57,17 +76,23 @@
       const currDEA = dea[len - 1];
 
       let resultText = '';
+      const intervalName = interval === '1m' ? '10分鐘級別' : '30分鐘級別';
+
       if (prevDIF < prevDEA && currDIF > currDEA) {
-        resultText = `${symbol}: 看漲 📈（黃金交叉）`;
+        resultText = `${symbol}（${intervalName}）: 看漲 📈（黃金交叉）`;
       } else if (prevDIF > prevDEA && currDIF < currDEA) {
-        resultText = `${symbol}: 看跌 📉（死亡交叉）`;
+        resultText = `${symbol}（${intervalName}）: 看跌 📉（死亡交叉）`;
       } else {
-        resultText = `${symbol}: 盤整中，不宜入場 🚫`;
+        resultText = `${symbol}（${intervalName}）: 盤整中，不宜入場 🚫`;
       }
 
       document.getElementById('result').innerText = resultText;
+
+      // 更新 TradingView 圖表
+      const tvSymbol = symbol.replace('USDT', 'USD').toLowerCase(); // e.g. btcusd
+      const iframeUrl = `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}&interval=${interval === '1m' ? 1 : 30}&theme=light&style=1&locale=zh_TW&hide_top_toolbar=true`;
+      document.getElementById('tv-iframe').src = iframeUrl;
     }
   </script>
 </body>
 </html>
-
