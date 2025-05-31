@@ -4,29 +4,27 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>噗噗 Binance 事件合約預測器</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/technicalindicators@3.1.0/dist/browser.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
-      margin: 30px;
-      background-color: #f5f5f5;
+      padding: 20px;
+      background-color: #f9f9f9;
     }
-    h1 {
-      color: #333;
+    select, button {
+      margin: 10px;
+      padding: 5px;
     }
-    #result {
+    #result, #details {
       margin-top: 20px;
-      font-size: 18px;
-      font-weight: bold;
+      padding: 10px;
+      border-radius: 6px;
+      background: #fff;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
     #details {
-      margin-top: 10px;
-      background-color: #fff;
-      padding: 15px;
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
       white-space: pre-wrap;
+      font-size: 14px;
     }
   </style>
 </head>
@@ -45,6 +43,7 @@
   </select>
 
   <button onclick="analyzeMarket()">分析</button>
+
   <div id="result"></div>
   <div id="details"></div>
 
@@ -54,76 +53,74 @@
       const interval = document.getElementById("interval").value;
       const limit = interval === "10m" ? 50 : 100;
 
-      const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1m&limit=${limit}`);
-      const data = await response.json();
+      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1m&limit=${limit}`);
+      const data = await res.json();
 
-      const closePrices = data.map(d => parseFloat(d[4]));
-      const highPrices = data.map(d => parseFloat(d[2]));
-      const lowPrices = data.map(d => parseFloat(d[3]));
+      const close = data.map(c => parseFloat(c[4]));
+      const high = data.map(c => parseFloat(c[2]));
+      const low = data.map(c => parseFloat(c[3]));
 
+      const time = new Date().toLocaleString();
+
+      // MACD
       const macd = window.technicalindicators.MACD.calculate({
-        values: closePrices,
+        values: close,
         fastPeriod: 12,
         slowPeriod: 26,
         signalPeriod: 9,
         SimpleMAOscillator: false,
         SimpleMASignal: false
       });
-
       const latestMACD = macd[macd.length - 1];
-      let macdSignal = "";
-      if (latestMACD.MACD > latestMACD.signal) macdSignal = "看漲";
-      else if (latestMACD.MACD < latestMACD.signal) macdSignal = "看跌";
-      else macdSignal = "盤整";
+      const macdSignal = latestMACD.MACD > latestMACD.signal ? "看漲" : latestMACD.MACD < latestMACD.signal ? "看跌" : "盤整";
 
-      const rsi = window.technicalindicators.RSI.calculate({
-        values: closePrices,
-        period: 14
-      });
+      // RSI
+      const rsi = window.technicalindicators.RSI.calculate({ values: close, period: 14 });
       const latestRSI = rsi[rsi.length - 1];
-      let rsiSignal = latestRSI > 70 ? "過熱 (看跌)" : latestRSI < 30 ? "超賣 (看漲)" : "中性";
+      const rsiSignal = latestRSI > 70 ? "看跌" : latestRSI < 30 ? "看漲" : "盤整";
 
+      // KDJ (Stochastic)
       const kdj = window.technicalindicators.Stochastic.calculate({
-        high: highPrices,
-        low: lowPrices,
-        close: closePrices,
+        high,
+        low,
+        close,
         period: 14,
         signalPeriod: 3
       });
       const latestKDJ = kdj[kdj.length - 1];
-      let kdjSignal = latestKDJ.k > latestKDJ.d ? "看漲" : latestKDJ.k < latestKDJ.d ? "看跌" : "中性";
+      const kdjSignal = latestKDJ.k > latestKDJ.d ? "看漲" : latestKDJ.k < latestKDJ.d ? "看跌" : "盤整";
 
+      // Bollinger Bands
       const bb = window.technicalindicators.BollingerBands.calculate({
+        values: close,
         period: 20,
-        values: closePrices,
         stdDev: 2
       });
       const latestBB = bb[bb.length - 1];
-      const lastPrice = closePrices[closePrices.length - 1];
-      let bbSignal = "中性";
-      if (lastPrice >= latestBB.upper) bbSignal = "價格觸及上軌 → 看跌";
-      else if (lastPrice <= latestBB.lower) bbSignal = "價格觸及下軌 → 看漲";
-      else bbSignal = "中軌附近 → 盤整";
+      const lastPrice = close[close.length - 1];
+      let bbSignal = "盤整";
+      if (lastPrice >= latestBB.upper) bbSignal = "看跌";
+      else if (lastPrice <= latestBB.lower) bbSignal = "看漲";
 
-      const now = new Date().toLocaleString();
-
-      // 綜合分析
+      // 統合分析
       let bullish = 0, bearish = 0;
       if (macdSignal === "看漲") bullish++; else if (macdSignal === "看跌") bearish++;
-      if (rsiSignal.includes("看漲")) bullish++; else if (rsiSignal.includes("看跌")) bearish++;
+      if (rsiSignal === "看漲") bullish++; else if (rsiSignal === "看跌") bearish++;
       if (kdjSignal === "看漲") bullish++; else if (kdjSignal === "看跌") bearish++;
-      if (bbSignal.includes("看漲")) bullish++; else if (bbSignal.includes("看跌")) bearish++;
+      if (bbSignal === "看漲") bullish++; else if (bbSignal === "看跌") bearish++;
 
-      let conclusion = "盤整中，不宜入場 🚫";
-      if (bullish >= 3) conclusion = `預測 ${interval} 後價格將上漲 📈`;
-      else if (bearish >= 3) conclusion = `預測 ${interval} 後價格將下跌 📉`;
+      let final = "盤整中，不宜入場 🚫";
+      if (bullish >= 3) final = `預測 ${interval} 後 ${symbol} 將上漲 📈`;
+      else if (bearish >= 3) final = `預測 ${interval} 後 ${symbol} 將下跌 📉`;
 
-      document.getElementById("result").textContent = `分析結果：${conclusion}`;
-      document.getElementById("details").textContent = `分析時間：${now}\n` +
-        `→ MACD：${macdSignal} (值：${latestMACD.MACD.toFixed(3)} / 訊號：${latestMACD.signal.toFixed(3)})\n` +
-        `→ RSI：${rsiSignal} (值：${latestRSI.toFixed(2)})\n` +
-        `→ KDJ：${kdjSignal} (K=${latestKDJ.k.toFixed(2)} / D=${latestKDJ.d.toFixed(2)})\n` +
-        `→ 布林通道：${bbSignal} (價格=${lastPrice.toFixed(2)}, 上=${latestBB.upper.toFixed(2)}, 下=${latestBB.lower.toFixed(2)})`;
+      document.getElementById("result").innerText = `分析結果：${final}`;
+
+      document.getElementById("details").innerText =
+        `分析時間：${time}\n` +
+        `→ MACD (${macdSignal}): MACD=${latestMACD.MACD.toFixed(3)}, signal=${latestMACD.signal.toFixed(3)}\n` +
+        `→ RSI (${rsiSignal}): RSI=${latestRSI.toFixed(2)}\n` +
+        `→ KDJ (${kdjSignal}): K=${latestKDJ.k.toFixed(2)}, D=${latestKDJ.d.toFixed(2)}\n` +
+        `→ 布林通道 (${bbSignal}): 價格=${lastPrice.toFixed(2)}, 上=${latestBB.upper.toFixed(2)}, 下=${latestBB.lower.toFixed(2)}`;
     }
   </script>
 </body>
