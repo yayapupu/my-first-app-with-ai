@@ -1,0 +1,13 @@
+name: Scheduled Fetch
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # 每小時執行一次 UTC（可改為你想要的頻率）
+  workflow_dispatch:     # 手動執行按鈕
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Curl fetch API
+        run: curl https://https://my-first-app-with-ai.vercel.app/api/fetch
