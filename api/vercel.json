@@ -1,0 +1,8 @@
+{
+  "builds": [
+    { "src": "fetch-history/index.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/fetch", "dest": "fetch-history/index.js" }
+  ]
+}
