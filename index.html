@@ -7,15 +7,16 @@
   <style>
     body { font-family: Arial, sans-serif; background: #f8f9fa; text-align: center; padding: 20px; }
     h1 { color: #222; }
-    #result { font-size: 1.5em; margin-top: 20px; }
+    #result { font-size: 1.4em; margin-top: 20px; }
     .btn-group { margin-top: 10px; }
     button { margin: 5px; padding: 8px 12px; font-size: 16px; cursor: pointer; }
     iframe { margin-top: 30px; border: none; }
+    #timestamp { font-size: 0.9em; color: #666; margin-top: 10px; }
   </style>
 </head>
 <body>
   <h1>噗噗 Binance 事件合約預測器</h1>
-  <p>以 MACD 技術指標預測 BTC/ETH 未來走勢</p>
+  <p>以 MACD + RSI + KDJ 多指標預測 BTC/ETH 未來走勢</p>
 
   <div class="btn-group">
     <button onclick="analyze('BTCUSDT', '1m')">分析 BTC（10分鐘）</button>
@@ -25,6 +26,7 @@
   </div>
 
   <div id="result">請選擇要預測的幣種與時間級別</div>
+  <div id="timestamp"></div>
 
   <div id="tv-widget">
     <iframe id="tv-iframe"
@@ -42,7 +44,9 @@
       const data = await res.json();
       return data.map(d => ({
         time: d[0],
-        close: parseFloat(d[4])
+        close: parseFloat(d[4]),
+        high: parseFloat(d[2]),
+        low: parseFloat(d[3])
       }));
     }
 
@@ -60,8 +64,49 @@
       const ema26 = ema(prices, 26);
       const dif = ema12.map((v, i) => v - ema26[i]);
       const dea = ema(dif, 9);
-      const macd = dif.map((v, i) => v - dea[i]);
-      return { dif, dea, macd };
+      return { dif, dea, macd: dif.map((v, i) => v - dea[i]) };
+    }
+
+    function getRSI(prices, period = 14) {
+      let gains = [], losses = [];
+      for (let i = 1; i < prices.length; i++) {
+        const diff = prices[i] - prices[i - 1];
+        if (diff >= 0) gains.push(diff), losses.push(0);
+        else gains.push(0), losses.push(-diff);
+      }
+      let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
+      let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
+      for (let i = period; i < gains.length; i++) {
+        avgGain = (avgGain * (period - 1) + gains[i]) / period;
+        avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
+      }
+      const rs = avgGain / avgLoss;
+      return 100 - (100 / (1 + rs));
+    }
+
+    function getKDJ(data, period = 9) {
+      let RSV = [];
+      for (let i = period - 1; i < data.length; i++) {
+        const window = data.slice(i - period + 1, i + 1);
+        const high = Math.max(...window.map(d => d.high));
+        const low = Math.min(...window.map(d => d.low));
+        const close = data[i].close;
+        RSV.push(((close - low) / (high - low)) * 100);
+      }
+
+      let K = [50], D = [50];
+      for (let i = 0; i < RSV.length; i++) {
+        const prevK = K[i] || 50;
+        const prevD = D[i] || 50;
+        K.push((2 / 3) * prevK + (1 / 3) * RSV[i]);
+        D.push((2 / 3) * prevD + (1 / 3) * K[i + 1]);
+      }
+      return { K: K.slice(-2), D: D.slice(-2) }; // 回傳最後兩個值
+    }
+
+    function getNowTimeStr() {
+      const now = new Date();
+      return now.toLocaleString("zh-TW", { hour12: false });
     }
 
     async function analyze(symbol, interval) {
@@ -75,21 +120,30 @@
       const currDIF = dif[len - 1];
       const currDEA = dea[len - 1];
 
+      const macdSignal = (prevDIF < prevDEA && currDIF > currDEA) ? 'bullish'
+                         : (prevDIF > prevDEA && currDIF < currDEA) ? 'bearish'
+                         : 'neutral';
+
+      const rsi = getRSI(closes);
+      const kdj = getKDJ(data);
+      const kCrossUp = kdj.K[0] < kdj.D[0] && kdj.K[1] > kdj.D[1];
+      const kCrossDown = kdj.K[0] > kdj.D[0] && kdj.K[1] < kdj.D[1];
+
       let resultText = '';
       const intervalName = interval === '1m' ? '10分鐘級別' : '30分鐘級別';
 
-      if (prevDIF < prevDEA && currDIF > currDEA) {
-        resultText = `${symbol}（${intervalName}）: 看漲 📈（黃金交叉）`;
-      } else if (prevDIF > prevDEA && currDIF < currDEA) {
-        resultText = `${symbol}（${intervalName}）: 看跌 📉（死亡交叉）`;
+      if ((macdSignal === 'bullish' && (rsi < 60 || kCrossUp)) || (rsi < 30)) {
+        resultText = `${symbol}（${intervalName}）: 看漲 📈（MACD + RSI + KDJ 支持）`;
+      } else if ((macdSignal === 'bearish' && (rsi > 40 || kCrossDown)) || (rsi > 70)) {
+        resultText = `${symbol}（${intervalName}）: 看跌 📉（MACD + RSI + KDJ 警示）`;
       } else {
         resultText = `${symbol}（${intervalName}）: 盤整中，不宜入場 🚫`;
       }
 
       document.getElementById('result').innerText = resultText;
+      document.getElementById('timestamp').innerText = `分析時間：${getNowTimeStr()}`;
 
-      // 更新 TradingView 圖表
-      const tvSymbol = symbol.replace('USDT', 'USD').toLowerCase(); // e.g. btcusd
+      const tvSymbol = symbol.replace('USDT', 'USD').toLowerCase();
       const iframeUrl = `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}&interval=${interval === '1m' ? 1 : 30}&theme=light&style=1&locale=zh_TW&hide_top_toolbar=true`;
       document.getElementById('tv-iframe').src = iframeUrl;
     }
