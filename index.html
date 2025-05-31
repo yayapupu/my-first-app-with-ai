@@ -1,151 +1,129 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>噗噗 Binance 事件合約預測器</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/technicalindicators@3.1.0/dist/browser.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; background: #f8f9fa; text-align: center; padding: 20px; }
-    h1 { color: #222; }
-    #result { font-size: 1.4em; margin-top: 20px; }
-    .btn-group { margin-top: 10px; }
-    button { margin: 5px; padding: 8px 12px; font-size: 16px; cursor: pointer; }
-    iframe { margin-top: 30px; border: none; }
-    #timestamp { font-size: 0.9em; color: #666; margin-top: 10px; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 30px;
+      background-color: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+    }
+    #result {
+      margin-top: 20px;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    #details {
+      margin-top: 10px;
+      background-color: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      white-space: pre-wrap;
+    }
   </style>
 </head>
 <body>
-  <h1>噗噗 Binance 事件合約預測器</h1>
-  <p>以 MACD + RSI + KDJ 多指標預測 BTC/ETH 未來走勢</p>
+  <h1>噗噗 Binance 事件合約預測器 (10/30分鐘)</h1>
+  <label for="symbol">選擇幣種:</label>
+  <select id="symbol">
+    <option value="BTCUSDT">比特幣 (BTC)</option>
+    <option value="ETHUSDT">以太幣 (ETH)</option>
+  </select>
 
-  <div class="btn-group">
-    <button onclick="analyze('BTCUSDT', '1m')">分析 BTC（10分鐘）</button>
-    <button onclick="analyze('ETHUSDT', '1m')">分析 ETH（10分鐘）</button>
-    <button onclick="analyze('BTCUSDT', '30m')">分析 BTC（30分鐘）</button>
-    <button onclick="analyze('ETHUSDT', '30m')">分析 ETH（30分鐘）</button>
-  </div>
+  <label for="interval">時間尺度:</label>
+  <select id="interval">
+    <option value="10m">10分鐘</option>
+    <option value="30m">30分鐘</option>
+  </select>
 
-  <div id="result">請選擇要預測的幣種與時間級別</div>
-  <div id="timestamp"></div>
-
-  <div id="tv-widget">
-    <iframe id="tv-iframe"
-      width="100%"
-      height="500"
-      src=""
-      allowtransparency="true"
-      scrolling="no">
-    </iframe>
-  </div>
+  <button onclick="analyzeMarket()">分析</button>
+  <div id="result"></div>
+  <div id="details"></div>
 
   <script>
-    async function getKlines(symbol, interval = '1m', limit = 100) {
-      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
-      const data = await res.json();
-      return data.map(d => ({
-        time: d[0],
-        close: parseFloat(d[4]),
-        high: parseFloat(d[2]),
-        low: parseFloat(d[3])
-      }));
-    }
+    async function analyzeMarket() {
+      const symbol = document.getElementById("symbol").value;
+      const interval = document.getElementById("interval").value;
+      const limit = interval === "10m" ? 50 : 100;
 
-    function ema(prices, period) {
-      const k = 2 / (period + 1);
-      let emaArray = [prices[0]];
-      for (let i = 1; i < prices.length; i++) {
-        emaArray.push(prices[i] * k + emaArray[i - 1] * (1 - k));
-      }
-      return emaArray;
-    }
+      const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1m&limit=${limit}`);
+      const data = await response.json();
 
-    function getMACD(prices) {
-      const ema12 = ema(prices, 12);
-      const ema26 = ema(prices, 26);
-      const dif = ema12.map((v, i) => v - ema26[i]);
-      const dea = ema(dif, 9);
-      return { dif, dea, macd: dif.map((v, i) => v - dea[i]) };
-    }
+      const closePrices = data.map(d => parseFloat(d[4]));
+      const highPrices = data.map(d => parseFloat(d[2]));
+      const lowPrices = data.map(d => parseFloat(d[3]));
 
-    function getRSI(prices, period = 14) {
-      let gains = [], losses = [];
-      for (let i = 1; i < prices.length; i++) {
-        const diff = prices[i] - prices[i - 1];
-        if (diff >= 0) gains.push(diff), losses.push(0);
-        else gains.push(0), losses.push(-diff);
-      }
-      let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
-      let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
-      for (let i = period; i < gains.length; i++) {
-        avgGain = (avgGain * (period - 1) + gains[i]) / period;
-        avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
-      }
-      const rs = avgGain / avgLoss;
-      return 100 - (100 / (1 + rs));
-    }
+      const macd = window.technicalindicators.MACD.calculate({
+        values: closePrices,
+        fastPeriod: 12,
+        slowPeriod: 26,
+        signalPeriod: 9,
+        SimpleMAOscillator: false,
+        SimpleMASignal: false
+      });
 
-    function getKDJ(data, period = 9) {
-      let RSV = [];
-      for (let i = period - 1; i < data.length; i++) {
-        const window = data.slice(i - period + 1, i + 1);
-        const high = Math.max(...window.map(d => d.high));
-        const low = Math.min(...window.map(d => d.low));
-        const close = data[i].close;
-        RSV.push(((close - low) / (high - low)) * 100);
-      }
+      const latestMACD = macd[macd.length - 1];
+      let macdSignal = "";
+      if (latestMACD.MACD > latestMACD.signal) macdSignal = "看漲";
+      else if (latestMACD.MACD < latestMACD.signal) macdSignal = "看跌";
+      else macdSignal = "盤整";
 
-      let K = [50], D = [50];
-      for (let i = 0; i < RSV.length; i++) {
-        const prevK = K[i] || 50;
-        const prevD = D[i] || 50;
-        K.push((2 / 3) * prevK + (1 / 3) * RSV[i]);
-        D.push((2 / 3) * prevD + (1 / 3) * K[i + 1]);
-      }
-      return { K: K.slice(-2), D: D.slice(-2) }; // 回傳最後兩個值
-    }
+      const rsi = window.technicalindicators.RSI.calculate({
+        values: closePrices,
+        period: 14
+      });
+      const latestRSI = rsi[rsi.length - 1];
+      let rsiSignal = latestRSI > 70 ? "過熱 (看跌)" : latestRSI < 30 ? "超賣 (看漲)" : "中性";
 
-    function getNowTimeStr() {
-      const now = new Date();
-      return now.toLocaleString("zh-TW", { hour12: false });
-    }
+      const kdj = window.technicalindicators.Stochastic.calculate({
+        high: highPrices,
+        low: lowPrices,
+        close: closePrices,
+        period: 14,
+        signalPeriod: 3
+      });
+      const latestKDJ = kdj[kdj.length - 1];
+      let kdjSignal = latestKDJ.k > latestKDJ.d ? "看漲" : latestKDJ.k < latestKDJ.d ? "看跌" : "中性";
 
-    async function analyze(symbol, interval) {
-      const data = await getKlines(symbol, interval);
-      const closes = data.map(d => d.close);
-      const { dif, dea } = getMACD(closes);
+      const bb = window.technicalindicators.BollingerBands.calculate({
+        period: 20,
+        values: closePrices,
+        stdDev: 2
+      });
+      const latestBB = bb[bb.length - 1];
+      const lastPrice = closePrices[closePrices.length - 1];
+      let bbSignal = "中性";
+      if (lastPrice >= latestBB.upper) bbSignal = "價格觸及上軌 → 看跌";
+      else if (lastPrice <= latestBB.lower) bbSignal = "價格觸及下軌 → 看漲";
+      else bbSignal = "中軌附近 → 盤整";
 
-      const len = dif.length;
-      const prevDIF = dif[len - 2];
-      const prevDEA = dea[len - 2];
-      const currDIF = dif[len - 1];
-      const currDEA = dea[len - 1];
+      const now = new Date().toLocaleString();
 
-      const macdSignal = (prevDIF < prevDEA && currDIF > currDEA) ? 'bullish'
-                         : (prevDIF > prevDEA && currDIF < currDEA) ? 'bearish'
-                         : 'neutral';
+      // 綜合分析
+      let bullish = 0, bearish = 0;
+      if (macdSignal === "看漲") bullish++; else if (macdSignal === "看跌") bearish++;
+      if (rsiSignal.includes("看漲")) bullish++; else if (rsiSignal.includes("看跌")) bearish++;
+      if (kdjSignal === "看漲") bullish++; else if (kdjSignal === "看跌") bearish++;
+      if (bbSignal.includes("看漲")) bullish++; else if (bbSignal.includes("看跌")) bearish++;
 
-      const rsi = getRSI(closes);
-      const kdj = getKDJ(data);
-      const kCrossUp = kdj.K[0] < kdj.D[0] && kdj.K[1] > kdj.D[1];
-      const kCrossDown = kdj.K[0] > kdj.D[0] && kdj.K[1] < kdj.D[1];
+      let conclusion = "盤整中，不宜入場 🚫";
+      if (bullish >= 3) conclusion = `預測 ${interval} 後價格將上漲 📈`;
+      else if (bearish >= 3) conclusion = `預測 ${interval} 後價格將下跌 📉`;
 
-      let resultText = '';
-      const intervalName = interval === '1m' ? '10分鐘級別' : '30分鐘級別';
-
-      if ((macdSignal === 'bullish' && (rsi < 60 || kCrossUp)) || (rsi < 30)) {
-        resultText = `${symbol}（${intervalName}）: 看漲 📈（MACD + RSI + KDJ 支持）`;
-      } else if ((macdSignal === 'bearish' && (rsi > 40 || kCrossDown)) || (rsi > 70)) {
-        resultText = `${symbol}（${intervalName}）: 看跌 📉（MACD + RSI + KDJ 警示）`;
-      } else {
-        resultText = `${symbol}（${intervalName}）: 盤整中，不宜入場 🚫`;
-      }
-
-      document.getElementById('result').innerText = resultText;
-      document.getElementById('timestamp').innerText = `分析時間：${getNowTimeStr()}`;
-
-      const tvSymbol = symbol.replace('USDT', 'USD').toLowerCase();
-      const iframeUrl = `https://s.tradingview.com/widgetembed/?symbol=BINANCE:${symbol}&interval=${interval === '1m' ? 1 : 30}&theme=light&style=1&locale=zh_TW&hide_top_toolbar=true`;
-      document.getElementById('tv-iframe').src = iframeUrl;
+      document.getElementById("result").textContent = `分析結果：${conclusion}`;
+      document.getElementById("details").textContent = `分析時間：${now}\n` +
+        `→ MACD：${macdSignal} (值：${latestMACD.MACD.toFixed(3)} / 訊號：${latestMACD.signal.toFixed(3)})\n` +
+        `→ RSI：${rsiSignal} (值：${latestRSI.toFixed(2)})\n` +
+        `→ KDJ：${kdjSignal} (K=${latestKDJ.k.toFixed(2)} / D=${latestKDJ.d.toFixed(2)})\n` +
+        `→ 布林通道：${bbSignal} (價格=${lastPrice.toFixed(2)}, 上=${latestBB.upper.toFixed(2)}, 下=${latestBB.lower.toFixed(2)})`;
     }
   </script>
 </body>
